@@ -1,4 +1,4 @@
-import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
+import type { RedirectHop } from '$lib/state/redirect-chain.svelte';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 

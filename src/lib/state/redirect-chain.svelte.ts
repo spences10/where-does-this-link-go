@@ -1,28 +1,9 @@
-export interface RedirectHop {
-	url: string;
-	status: number;
-	status_text: string;
-	response_time: number;
-	timestamp: Date;
-	headers?: Record<string, string>;
-	redirect_type: 'http' | 'javascript' | 'meta' | 'unknown';
-	is_secure: boolean;
-}
+import type {
+	RedirectChainState,
+	RedirectHop
+} from '$lib/types/redirect-hop';
 
-export interface RedirectChainState {
-	is_tracing: boolean;
-	input_url: string;
-	current_url: string;
-	hops: RedirectHop[];
-	error: string | null;
-	total_time: number;
-	final_destination: {
-		url: string;
-		title?: string;
-		favicon?: string;
-		is_reachable: boolean;
-	} | null;
-}
+export type { RedirectChainState, RedirectHop };
 
 const initial_state: RedirectChainState = {
 	is_tracing: false,

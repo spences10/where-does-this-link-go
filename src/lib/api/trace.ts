@@ -1,4 +1,4 @@
-import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
+import type { RedirectHop } from '$lib/types/redirect-hop';
 
 interface trace_response {
 	hops: RedirectHop[];

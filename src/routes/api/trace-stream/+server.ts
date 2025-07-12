@@ -1,5 +1,13 @@
+import type { RedirectHop } from '$lib/types/redirect-hop';
+import {
+	check_domain_change,
+	parse_analytics_info,
+	parse_cache_info,
+	parse_performance_info,
+	parse_security_info,
+	parse_server_info
+} from '$lib/utils/header-parser';
 import type { RequestHandler } from './$types';
-import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
 
 interface trace_event {
 	type: 'hop' | 'final' | 'error' | 'complete';
@@ -51,6 +59,12 @@ async function* trace_redirects_stream(
 
 					const next_url = new URL(location, current_url).href;
 
+					const headers = Object.fromEntries(
+						response.headers.entries()
+					);
+					const previous_url =
+						hops[hops.length - 1]?.url || initial_url;
+
 					const hop: RedirectHop = {
 						url: current_url,
 						status: response.status,
@@ -59,7 +73,17 @@ async function* trace_redirects_stream(
 						timestamp: new Date(),
 						redirect_type: 'http',
 						is_secure: current_url.startsWith('https://'),
-						headers: Object.fromEntries(response.headers.entries())
+						headers,
+						// Enhanced data
+						domain_changed: check_domain_change(
+							current_url,
+							previous_url
+						),
+						server_info: parse_server_info(headers),
+						cache_info: parse_cache_info(headers),
+						security_info: parse_security_info(current_url, headers),
+						performance_info: parse_performance_info(headers),
+						analytics_info: parse_analytics_info(current_url)
 					};
 
 					hops.push(hop);
@@ -129,6 +153,12 @@ async function* trace_redirects_stream(
 
 				// If we found a JS redirect, add it and continue
 				if (js_redirect_url && js_redirect_url !== current_url) {
+					const js_headers = Object.fromEntries(
+						final_response.headers.entries()
+					);
+					const js_previous_url =
+						hops[hops.length - 1]?.url || initial_url;
+
 					const hop: RedirectHop = {
 						url: current_url,
 						status: final_response.status,
@@ -137,9 +167,20 @@ async function* trace_redirects_stream(
 						timestamp: new Date(),
 						redirect_type: is_meta_redirect ? 'meta' : 'javascript',
 						is_secure: current_url.startsWith('https://'),
-						headers: Object.fromEntries(
-							final_response.headers.entries()
-						)
+						headers: js_headers,
+						// Enhanced data
+						domain_changed: check_domain_change(
+							current_url,
+							js_previous_url
+						),
+						server_info: parse_server_info(js_headers),
+						cache_info: parse_cache_info(js_headers),
+						security_info: parse_security_info(
+							current_url,
+							js_headers
+						),
+						performance_info: parse_performance_info(js_headers),
+						analytics_info: parse_analytics_info(current_url)
 					};
 
 					hops.push(hop);

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { replaceState } from '$app/navigation';
+	import HopCard from '$lib/components/hop-card.svelte';
 	import {
 		add_hop,
 		finish_tracing,
@@ -169,50 +170,7 @@
 
 					<!-- Redirect Hops -->
 					{#each redirect_chain.hops as hop, index}
-						<div class="flex items-center gap-4">
-							<div class="badge badge-primary">{index + 1}</div>
-							<div class="flex-1">
-								<div
-									class="bg-base-200 mb-1 rounded p-2 font-mono text-sm"
-								>
-									{hop.url}
-								</div>
-								<div class="flex gap-4 text-xs opacity-70">
-									<span class="badge badge-outline badge-sm">
-										{hop.status}
-										{hop.status_text}
-									</span>
-									<span>{hop.response_time}ms</span>
-									{#if hop.redirect_type === 'http'}
-										<span class="badge badge-primary badge-sm"
-											>HTTP</span
-										>
-									{:else if hop.redirect_type === 'javascript'}
-										<span class="badge badge-warning badge-sm"
-											>JavaScript</span
-										>
-									{:else if hop.redirect_type === 'meta'}
-										<span class="badge badge-info badge-sm"
-											>Meta Refresh</span
-										>
-									{:else}
-										<span
-											class="badge badge-ghost badge-sm capitalize"
-											>{hop.redirect_type}</span
-										>
-									{/if}
-									{#if hop.is_secure}
-										<span class="badge badge-success badge-sm"
-											>🔒 HTTPS</span
-										>
-									{:else}
-										<span class="badge badge-error badge-sm"
-											>🔓 HTTP</span
-										>
-									{/if}
-								</div>
-							</div>
-						</div>
+						<HopCard {hop} {index} />
 					{/each}
 
 					<!-- Final Destination -->
