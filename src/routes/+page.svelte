@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { trace_url } from '$lib/api/trace';
+	import { replaceState } from '$app/navigation';
 	import {
 		add_hop,
 		finish_tracing,
@@ -8,66 +8,77 @@
 		set_error,
 		start_tracing
 	} from '$lib/state/redirect-chain.svelte';
+	import { onMount } from 'svelte';
 
-	let input_url = $state('bit.ly/test');
-	
+	let input_url = $state('');
+
 	// Load URL from query params on mount
-	$effect(() => {
-		if (typeof window !== 'undefined') {
-			const params = new URLSearchParams(window.location.search);
-			const url_param = params.get('url');
-			if (url_param) {
-				input_url = decodeURIComponent(url_param);
-				// Auto-trace if URL is provided
-				handle_trace();
-			}
+	onMount(() => {
+		const params = new URLSearchParams(window.location.search);
+		const url_param = params.get('url');
+		if (url_param) {
+			const decoded_url = decodeURIComponent(url_param);
+			input_url = decoded_url;
+			console.log('Auto-tracing URL from params:', decoded_url);
+			// Auto-trace if URL is provided
+			trace_from_url(decoded_url);
 		}
 	});
 
-	async function handle_trace() {
-		if (!input_url.trim()) return;
-
+	function trace_from_url(url: string) {
 		// Add protocol if missing
-		const url = input_url.includes('://')
-			? input_url
-			: `https://${input_url}`;
-		start_tracing(url);
+		const full_url = url.includes('://') ? url : `https://${url}`;
+		start_tracing(full_url);
 
-		try {
-			const result = await trace_url(url);
+		// Update URL for sharing
+		const encoded_url = encodeURIComponent(url);
+		replaceState(`?url=${encoded_url}`, {});
 
-			if (result.error) {
-				set_error(result.error);
-				return;
+		// Start SSE connection
+		const eventSource = new EventSource(
+			`/api/trace-stream?url=${encodeURIComponent(full_url)}`
+		);
+
+		eventSource.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+
+				switch (data.type) {
+					case 'hop':
+						add_hop(data.data);
+						break;
+					case 'final':
+						finish_tracing(
+							data.data.url,
+							data.data.title,
+							data.data.favicon
+						);
+						break;
+					case 'error':
+						set_error(data.data);
+						eventSource.close();
+						break;
+					case 'complete':
+						eventSource.close();
+						break;
+				}
+			} catch (error) {
+				console.error('Error parsing SSE data:', error);
+				set_error('Error processing trace data');
+				eventSource.close();
 			}
+		};
 
-			// Add each hop to the chain
-			for (const hop of result.hops) {
-				add_hop(hop);
-			}
-
-			// Set final destination
-			finish_tracing(
-				result.final_destination.url,
-				result.final_destination.title,
-				result.final_destination.favicon
-			);
-			
-			// Update URL for sharing
-			const encoded_url = encodeURIComponent(url);
-			window.history.replaceState({}, '', `?url=${encoded_url}`);
-		} catch (error) {
-			set_error(
-				error instanceof Error
-					? error.message
-					: 'An unknown error occurred'
-			);
-		}
+		eventSource.onerror = () => {
+			set_error('Connection error during trace');
+			eventSource.close();
+		};
 	}
 
-	function handle_input_keydown(event: KeyboardEvent) {
-		if (event.key === 'Enter') {
-			handle_trace();
+	function handle_form_submit(event: SubmitEvent) {
+		event.preventDefault();
+		if (input_url.trim()) {
+			trace_from_url(input_url);
 		}
 	}
 </script>
@@ -84,19 +95,20 @@
 	<div class="card bg-base-100 mb-8 shadow-xl">
 		<div class="card-body">
 			<h2 class="card-title">Enter URL to Trace</h2>
-			<div class="form-control">
+			<form onsubmit={handle_form_submit} class="form-control">
 				<div class="join">
 					<input
 						type="text"
+						name="url"
 						placeholder="https://example.com or bit.ly/abc123"
 						class="input input-bordered join-item flex-1"
 						bind:value={input_url}
-						onkeydown={handle_input_keydown}
 						disabled={redirect_chain.is_tracing}
+						required
 					/>
 					<button
+						type="submit"
 						class="btn btn-primary join-item"
-						onclick={handle_trace}
 						disabled={redirect_chain.is_tracing || !input_url.trim()}
 					>
 						{#if redirect_chain.is_tracing}
@@ -107,7 +119,7 @@
 						{/if}
 					</button>
 				</div>
-			</div>
+			</form>
 		</div>
 	</div>
 
@@ -172,18 +184,31 @@
 									</span>
 									<span>{hop.response_time}ms</span>
 									{#if hop.redirect_type === 'http'}
-										<span class="badge badge-primary badge-sm">HTTP</span>
+										<span class="badge badge-primary badge-sm"
+											>HTTP</span
+										>
 									{:else if hop.redirect_type === 'javascript'}
-										<span class="badge badge-warning badge-sm">JavaScript</span>
+										<span class="badge badge-warning badge-sm"
+											>JavaScript</span
+										>
 									{:else if hop.redirect_type === 'meta'}
-										<span class="badge badge-info badge-sm">Meta Refresh</span>
+										<span class="badge badge-info badge-sm"
+											>Meta Refresh</span
+										>
 									{:else}
-										<span class="badge badge-ghost badge-sm capitalize">{hop.redirect_type}</span>
+										<span
+											class="badge badge-ghost badge-sm capitalize"
+											>{hop.redirect_type}</span
+										>
 									{/if}
 									{#if hop.is_secure}
-										<span class="badge badge-success badge-sm">🔒 HTTPS</span>
+										<span class="badge badge-success badge-sm"
+											>🔒 HTTPS</span
+										>
 									{:else}
-										<span class="badge badge-error badge-sm">🔓 HTTP</span>
+										<span class="badge badge-error badge-sm"
+											>🔓 HTTP</span
+										>
 									{/if}
 								</div>
 							</div>

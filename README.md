@@ -5,8 +5,8 @@ the complete journey of any URL through its redirect path.
 
 ## Features
 
-- **Complete Redirect Chain Visualization** - See every hop from
-  source to destination
+- **Detailed Redirect Chain Analysis** - Track every hop with server
+  info, headers, timestamps, and animated visualization
 - **Multiple Redirect Types** - HTTP (301, 302, 307, 308), JavaScript,
   and Meta Refresh detection
 - **Performance Metrics** - Response times for each hop and total

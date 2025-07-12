@@ -1,30 +1,17 @@
-import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
 
-interface trace_request {
-	url: string;
+interface trace_event {
+	type: 'hop' | 'final' | 'error' | 'complete';
+	data?: any;
 }
 
-interface trace_response {
-	hops: RedirectHop[];
-	final_destination: {
-		url: string;
-		title?: string;
-		favicon?: string;
-		is_reachable: boolean;
-	};
-	total_time: number;
-	error?: string;
-}
-
-async function trace_redirects(
+async function* trace_redirects_stream(
 	initial_url: string
-): Promise<trace_response> {
+): AsyncGenerator<trace_event> {
 	const hops: RedirectHop[] = [];
 	let current_url = initial_url;
-	let total_time = 0;
-	const max_redirects = 10; // Prevent infinite loops
+	const max_redirects = 10;
 	const timeout_ms = 5000;
 
 	try {
@@ -39,8 +26,8 @@ async function trace_redirects(
 
 			try {
 				const response = await fetch(current_url, {
-					method: 'HEAD', // Use HEAD to avoid downloading full content
-					redirect: 'manual', // Don't follow redirects automatically
+					method: 'HEAD',
+					redirect: 'manual',
 					signal: controller.signal,
 					headers: {
 						'User-Agent':
@@ -50,22 +37,21 @@ async function trace_redirects(
 
 				clearTimeout(timeout_id);
 				const response_time = Date.now() - start_time;
-				total_time += response_time;
 
 				// Check if this is a redirect
 				if (response.status >= 300 && response.status < 400) {
 					const location = response.headers.get('location');
 					if (!location) {
-						throw new Error(
-							`Redirect response ${response.status} but no Location header`
-						);
+						yield {
+							type: 'error',
+							data: `Redirect response ${response.status} but no Location header`
+						};
+						return;
 					}
 
-					// Resolve relative URLs
 					const next_url = new URL(location, current_url).href;
 
-					// Add hop to chain
-					hops.push({
+					const hop: RedirectHop = {
 						url: current_url,
 						status: response.status,
 						status_text: response.statusText,
@@ -74,13 +60,16 @@ async function trace_redirects(
 						redirect_type: 'http',
 						is_secure: current_url.startsWith('https://'),
 						headers: Object.fromEntries(response.headers.entries())
-					});
+					};
+
+					hops.push(hop);
+					yield { type: 'hop', data: hop };
 
 					current_url = next_url;
 					continue;
 				}
 
-				// Final destination reached - but check for JS/meta redirects first
+				// Final destination - check for JS/meta redirects
 				const final_response = await fetch(current_url, {
 					method: 'GET',
 					signal: controller.signal,
@@ -90,7 +79,6 @@ async function trace_redirects(
 					}
 				});
 
-				// Check for meta refresh and JS redirects
 				let title: string | undefined;
 				let js_redirect_url: string | undefined;
 				let is_meta_redirect = false;
@@ -115,7 +103,7 @@ async function trace_redirects(
 						is_meta_redirect = true;
 					}
 
-					// Check for JavaScript redirects (basic patterns)
+					// Check for JavaScript redirects
 					if (!js_redirect_url) {
 						const js_patterns = [
 							/window\.location\s*=\s*["']([^"']+)["']/i,
@@ -136,12 +124,12 @@ async function trace_redirects(
 						}
 					}
 				} catch {
-					// Ignore errors when trying to extract content
+					// Ignore errors when parsing HTML
 				}
 
-				// If we found a JS redirect, add it to chain and continue
+				// If we found a JS redirect, add it and continue
 				if (js_redirect_url && js_redirect_url !== current_url) {
-					hops.push({
+					const hop: RedirectHop = {
 						url: current_url,
 						status: final_response.status,
 						status_text: final_response.statusText,
@@ -152,42 +140,61 @@ async function trace_redirects(
 						headers: Object.fromEntries(
 							final_response.headers.entries()
 						)
-					});
+					};
+
+					hops.push(hop);
+					yield { type: 'hop', data: hop };
 
 					current_url = js_redirect_url;
-					continue; // Continue the loop to follow the JS redirect
+					continue;
 				}
 
-				return {
-					hops,
-					final_destination: {
+				// Final destination reached
+				yield {
+					type: 'final',
+					data: {
 						url: current_url,
 						title,
-						is_reachable: final_response.ok
-					},
-					total_time
+						is_reachable: final_response.ok,
+						total_time: hops.reduce(
+							(sum, hop) => sum + hop.response_time,
+							0
+						)
+					}
 				};
+
+				yield { type: 'complete' };
+				return;
 			} catch (fetch_error) {
 				if (
 					fetch_error instanceof Error &&
 					fetch_error.name === 'AbortError'
 				) {
-					throw new Error(`Request timeout after ${timeout_ms}ms`);
+					yield {
+						type: 'error',
+						data: `Request timeout after ${timeout_ms}ms`
+					};
+				} else {
+					yield {
+						type: 'error',
+						data:
+							fetch_error instanceof Error
+								? fetch_error.message
+								: 'Unknown error'
+					};
 				}
-				throw fetch_error;
+				return;
 			}
 		}
 
-		throw new Error(`Too many redirects (max ${max_redirects})`);
+		yield {
+			type: 'error',
+			data: `Too many redirects (max ${max_redirects})`
+		};
 	} catch (error) {
-		return {
-			hops,
-			final_destination: {
-				url: current_url,
-				is_reachable: false
-			},
-			total_time,
-			error:
+		yield {
+			type: 'error',
+			data:
 				error instanceof Error
 					? error.message
 					: 'Unknown error occurred'
@@ -195,26 +202,53 @@ async function trace_redirects(
 	}
 }
 
-export const POST: RequestHandler = async ({ request }) => {
-	try {
-		const { url }: trace_request = await request.json();
+export const GET: RequestHandler = async ({ url }) => {
+	const trace_url = url.searchParams.get('url');
 
-		if (!url) {
-			return json({ error: 'URL is required' }, { status: 400 });
-		}
-
-		// Validate URL format
-		try {
-			new URL(url);
-		} catch {
-			return json({ error: 'Invalid URL format' }, { status: 400 });
-		}
-
-		const result = await trace_redirects(url);
-
-		return json(result);
-	} catch (error) {
-		console.error('Error tracing redirects:', error);
-		return json({ error: 'Internal server error' }, { status: 500 });
+	if (!trace_url) {
+		return new Response('URL parameter is required', { status: 400 });
 	}
+
+	// Validate URL format
+	try {
+		new URL(
+			trace_url.includes('://') ? trace_url : `https://${trace_url}`
+		);
+	} catch {
+		return new Response('Invalid URL format', { status: 400 });
+	}
+
+	const full_url = trace_url.includes('://')
+		? trace_url
+		: `https://${trace_url}`;
+
+	const encoder = new TextEncoder();
+	const stream = new ReadableStream({
+		async start(controller) {
+			try {
+				for await (const event of trace_redirects_stream(full_url)) {
+					const data = `data: ${JSON.stringify(event)}\n\n`;
+					controller.enqueue(encoder.encode(data));
+				}
+			} catch (error) {
+				const errorEvent = {
+					type: 'error',
+					data:
+						error instanceof Error ? error.message : 'Stream error'
+				};
+				const data = `data: ${JSON.stringify(errorEvent)}\n\n`;
+				controller.enqueue(encoder.encode(data));
+			} finally {
+				controller.close();
+			}
+		}
+	});
+
+	return new Response(stream, {
+		headers: {
+			'Content-Type': 'text/event-stream',
+			'Cache-Control': 'no-cache',
+			Connection: 'keep-alive'
+		}
+	});
 };
