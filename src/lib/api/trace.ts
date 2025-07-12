@@ -1,4 +1,4 @@
-import type { RedirectHop } from '$lib/stores/redirect-chain.svelte.js';
+import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
 
 interface trace_response {
 	hops: RedirectHop[];
@@ -12,7 +12,9 @@ interface trace_response {
 	error?: string;
 }
 
-export async function trace_url(url: string): Promise<trace_response> {
+export async function trace_url(
+	url: string
+): Promise<trace_response> {
 	const response = await fetch('/api/trace', {
 		method: 'POST',
 		headers: {

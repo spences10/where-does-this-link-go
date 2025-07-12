@@ -34,7 +34,9 @@ const initial_state: RedirectChainState = {
 	final_destination: null
 };
 
-export const redirect_chain = $state<RedirectChainState>({ ...initial_state });
+export const redirect_chain = $state<RedirectChainState>({
+	...initial_state
+});
 
 export function reset_chain() {
 	Object.assign(redirect_chain, initial_state);
@@ -52,10 +54,17 @@ export function add_hop(hop: RedirectHop) {
 	redirect_chain.current_url = hop.url;
 }
 
-export function finish_tracing(final_url?: string, title?: string, favicon?: string) {
+export function finish_tracing(
+	final_url?: string,
+	title?: string,
+	favicon?: string
+) {
 	redirect_chain.is_tracing = false;
-	redirect_chain.total_time = redirect_chain.hops.reduce((total, hop) => total + hop.response_time, 0);
-	
+	redirect_chain.total_time = redirect_chain.hops.reduce(
+		(total, hop) => total + hop.response_time,
+		0
+	);
+
 	if (final_url) {
 		redirect_chain.final_destination = {
 			url: final_url,
@@ -81,7 +90,10 @@ export function get_has_redirects() {
 }
 
 export function get_average_response_time() {
-	return redirect_chain.hops.length > 0 
-		? redirect_chain.hops.reduce((sum, hop) => sum + hop.response_time, 0) / redirect_chain.hops.length 
+	return redirect_chain.hops.length > 0
+		? redirect_chain.hops.reduce(
+				(sum, hop) => sum + hop.response_time,
+				0
+			) / redirect_chain.hops.length
 		: 0;
 }

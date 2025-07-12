@@ -1,6 +1,6 @@
+import type { RedirectHop } from '$lib/state/redirect-chain.svelte.js';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import type { RedirectHop } from '$lib/stores/redirect-chain.svelte.js';
 
 interface trace_request {
 	url: string;
@@ -18,7 +18,9 @@ interface trace_response {
 	error?: string;
 }
 
-async function trace_redirects(initial_url: string): Promise<trace_response> {
+async function trace_redirects(
+	initial_url: string
+): Promise<trace_response> {
 	const hops: RedirectHop[] = [];
 	let current_url = initial_url;
 	let total_time = 0;
@@ -28,9 +30,12 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 	try {
 		for (let i = 0; i < max_redirects; i++) {
 			const start_time = Date.now();
-			
+
 			const controller = new AbortController();
-			const timeout_id = setTimeout(() => controller.abort(), timeout_ms);
+			const timeout_id = setTimeout(
+				() => controller.abort(),
+				timeout_ms
+			);
 
 			try {
 				const response = await fetch(current_url, {
@@ -38,7 +43,8 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 					redirect: 'manual', // Don't follow redirects automatically
 					signal: controller.signal,
 					headers: {
-						'User-Agent': 'Where-Does-This-Link-Go/1.0 (Redirect Analyzer)'
+						'User-Agent':
+							'Where-Does-This-Link-Go/1.0 (Redirect Analyzer)'
 					}
 				});
 
@@ -50,7 +56,9 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 				if (response.status >= 300 && response.status < 400) {
 					const location = response.headers.get('location');
 					if (!location) {
-						throw new Error(`Redirect response ${response.status} but no Location header`);
+						throw new Error(
+							`Redirect response ${response.status} but no Location header`
+						);
 					}
 
 					// Resolve relative URLs
@@ -77,7 +85,8 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 					method: 'GET',
 					signal: controller.signal,
 					headers: {
-						'User-Agent': 'Where-Does-This-Link-Go/1.0 (Redirect Analyzer)'
+						'User-Agent':
+							'Where-Does-This-Link-Go/1.0 (Redirect Analyzer)'
 					}
 				});
 
@@ -85,7 +94,9 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 				let title: string | undefined;
 				try {
 					const html = await final_response.text();
-					const title_match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+					const title_match = html.match(
+						/<title[^>]*>([^<]+)<\/title>/i
+					);
 					title = title_match ? title_match[1].trim() : undefined;
 				} catch {
 					// Ignore errors when trying to extract title
@@ -100,9 +111,11 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 					},
 					total_time
 				};
-
 			} catch (fetch_error) {
-				if (fetch_error instanceof Error && fetch_error.name === 'AbortError') {
+				if (
+					fetch_error instanceof Error &&
+					fetch_error.name === 'AbortError'
+				) {
 					throw new Error(`Request timeout after ${timeout_ms}ms`);
 				}
 				throw fetch_error;
@@ -110,7 +123,6 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 		}
 
 		throw new Error(`Too many redirects (max ${max_redirects})`);
-
 	} catch (error) {
 		return {
 			hops,
@@ -119,7 +131,10 @@ async function trace_redirects(initial_url: string): Promise<trace_response> {
 				is_reachable: false
 			},
 			total_time,
-			error: error instanceof Error ? error.message : 'Unknown error occurred'
+			error:
+				error instanceof Error
+					? error.message
+					: 'Unknown error occurred'
 		};
 	}
 }
@@ -140,14 +155,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const result = await trace_redirects(url);
-		
-		return json(result);
 
+		return json(result);
 	} catch (error) {
 		console.error('Error tracing redirects:', error);
-		return json(
-			{ error: 'Internal server error' },
-			{ status: 500 }
-		);
+		return json({ error: 'Internal server error' }, { status: 500 });
 	}
 };
