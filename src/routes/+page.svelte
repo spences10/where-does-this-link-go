@@ -9,7 +9,20 @@
 		start_tracing
 	} from '$lib/state/redirect-chain.svelte';
 
-	let input_url = $state('bit.ly/test ');
+	let input_url = $state('bit.ly/test');
+	
+	// Load URL from query params on mount
+	$effect(() => {
+		if (typeof window !== 'undefined') {
+			const params = new URLSearchParams(window.location.search);
+			const url_param = params.get('url');
+			if (url_param) {
+				input_url = decodeURIComponent(url_param);
+				// Auto-trace if URL is provided
+				handle_trace();
+			}
+		}
+	});
 
 	async function handle_trace() {
 		if (!input_url.trim()) return;
@@ -39,6 +52,10 @@
 				result.final_destination.title,
 				result.final_destination.favicon
 			);
+			
+			// Update URL for sharing
+			const encoded_url = encodeURIComponent(url);
+			window.history.replaceState({}, '', `?url=${encoded_url}`);
 		} catch (error) {
 			set_error(
 				error instanceof Error
@@ -154,7 +171,20 @@
 										{hop.status_text}
 									</span>
 									<span>{hop.response_time}ms</span>
-									<span class="capitalize">{hop.redirect_type}</span>
+									{#if hop.redirect_type === 'http'}
+										<span class="badge badge-primary badge-sm">HTTP</span>
+									{:else if hop.redirect_type === 'javascript'}
+										<span class="badge badge-warning badge-sm">JavaScript</span>
+									{:else if hop.redirect_type === 'meta'}
+										<span class="badge badge-info badge-sm">Meta Refresh</span>
+									{:else}
+										<span class="badge badge-ghost badge-sm capitalize">{hop.redirect_type}</span>
+									{/if}
+									{#if hop.is_secure}
+										<span class="badge badge-success badge-sm">🔒 HTTPS</span>
+									{:else}
+										<span class="badge badge-error badge-sm">🔓 HTTP</span>
+									{/if}
 								</div>
 							</div>
 						</div>

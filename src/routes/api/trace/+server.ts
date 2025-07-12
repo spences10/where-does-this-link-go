@@ -80,7 +80,7 @@ async function trace_redirects(
 					continue;
 				}
 
-				// Final destination reached
+				// Final destination reached - but check for JS/meta redirects first
 				const final_response = await fetch(current_url, {
 					method: 'GET',
 					signal: controller.signal,
@@ -90,16 +90,67 @@ async function trace_redirects(
 					}
 				});
 
-				// Try to extract page title
+				// Check for meta refresh and JS redirects
 				let title: string | undefined;
+				let js_redirect_url: string | undefined;
+				let is_meta_redirect = false;
+				
 				try {
 					const html = await final_response.text();
+					
+					// Extract page title
 					const title_match = html.match(
 						/<title[^>]*>([^<]+)<\/title>/i
 					);
 					title = title_match ? title_match[1].trim() : undefined;
+					
+					// Check for meta refresh
+					const meta_refresh_match = html.match(
+						/<meta[^>]*http-equiv\s*=\s*["']refresh["'][^>]*content\s*=\s*["'](\d+);\s*url\s*=\s*([^"']+)["'][^>]*>/i
+					);
+					
+					if (meta_refresh_match) {
+						const redirect_url = meta_refresh_match[2].trim();
+						js_redirect_url = new URL(redirect_url, current_url).href;
+						is_meta_redirect = true;
+					}
+					
+					// Check for JavaScript redirects (basic patterns)
+					if (!js_redirect_url) {
+						const js_patterns = [
+							/window\.location\s*=\s*["']([^"']+)["']/i,
+							/window\.location\.href\s*=\s*["']([^"']+)["']/i,
+							/location\.href\s*=\s*["']([^"']+)["']/i,
+							/location\s*=\s*["']([^"']+)["']/i
+						];
+						
+						for (const pattern of js_patterns) {
+							const match = html.match(pattern);
+							if (match) {
+								js_redirect_url = new URL(match[1].trim(), current_url).href;
+								break;
+							}
+						}
+					}
 				} catch {
-					// Ignore errors when trying to extract title
+					// Ignore errors when trying to extract content
+				}
+				
+				// If we found a JS redirect, add it to chain and continue
+				if (js_redirect_url && js_redirect_url !== current_url) {
+					hops.push({
+						url: current_url,
+						status: final_response.status,
+						status_text: final_response.statusText,
+						response_time: Date.now() - start_time,
+						timestamp: new Date(),
+						redirect_type: is_meta_redirect ? 'meta' : 'javascript',
+						is_secure: current_url.startsWith('https://'),
+						headers: Object.fromEntries(final_response.headers.entries())
+					});
+					
+					current_url = js_redirect_url;
+					continue; // Continue the loop to follow the JS redirect
 				}
 
 				return {
